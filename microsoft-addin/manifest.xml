@@ -6,7 +6,7 @@
            xsi:type="TaskPaneApp">
 
   <Id>5e87aad3-db10-44af-99f7-4ff7ddb14761</Id>
-  <Version>1.0.0.3</Version>
+  <Version>1.0.0.4</Version>
   <ProviderName>Masaaki Maeta</ProviderName>
   <DefaultLocale>ja-JP</DefaultLocale>
   <DisplayName DefaultValue="録音くん"/>
@@ -26,7 +26,7 @@
   </Hosts>
 
   <DefaultSettings>
-    <SourceLocation DefaultValue="https://johnnymaeta.github.io/rokuongithub/microsoft-addin/taskpane.html?v=3"/>
+    <SourceLocation DefaultValue="https://johnnymaeta.github.io/rokuongithub/microsoft-addin/taskpane.html?v=4"/>
   </DefaultSettings>
 
   <Permissions>ReadWriteDocument</Permissions>
@@ -79,7 +79,7 @@
       </bt:Images>
       <bt:Urls>
         <bt:Url id="GetStarted.LearnMoreUrl" DefaultValue="https://github.com/JohnnyMaeta/rokuongithub"/>
-        <bt:Url id="Taskpane.Url" DefaultValue="https://johnnymaeta.github.io/rokuongithub/microsoft-addin/taskpane.html?v=3"/>
+        <bt:Url id="Taskpane.Url" DefaultValue="https://johnnymaeta.github.io/rokuongithub/microsoft-addin/taskpane.html?v=4"/>
       </bt:Urls>
       <bt:ShortStrings>
         <bt:String id="GetStarted.Title" DefaultValue="録音くんの準備ができました"/>
