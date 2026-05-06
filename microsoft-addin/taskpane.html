@@ -80,7 +80,7 @@
     const HISTORY_SHEET_NAME = "History";
     const HISTORY_HEADERS = ["ファイル名", "保存日時", "フォルダパス", "ファイルリンク"];
     const SCOPES = ["Files.ReadWrite", "User.Read"];
-    const DIALOG_URL = "https://johnnymaeta.github.io/rokuongithub/microsoft-addin/dialog.html?v=5";
+    const DIALOG_URL = "https://johnnymaeta.github.io/rokuongithub/microsoft-addin/dialog.html?v=6";
 
     // ====== 状態 ======
     let msalInstance = null;
@@ -232,16 +232,20 @@
 
         const b64 = receivedChunks.join("");
         receivedChunks = [];
-        try {
-          const bin = atob(b64);
-          const u8 = new Uint8Array(bin.length);
-          for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
-          const blob = new Blob([u8], { type: "audio/mpeg" });
-          await saveToCloud(blob);
-        } catch (e) {
-          console.error(e);
-          setStatus("保存処理でエラー: " + e.message, "error");
-        }
+        const bin = atob(b64);
+        const u8 = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+        const blob = new Blob([u8], { type: "audio/mpeg" });
+
+        // Officeのdialog後始末が完了するまで待ってからExcel.runを呼ぶ。
+        // DialogMessageReceivedハンドラ内で直接Excel.runを呼ぶと、ホスト側の
+        // ダイアログ終了処理と競合してInvalidArgumentになる。
+        setTimeout(() => {
+          saveToCloud(blob).catch((e) => {
+            console.error(e);
+            setStatus("保存処理でエラー: " + e.message, "error");
+          });
+        }, 300);
       }
     }
 
