@@ -66,7 +66,7 @@
     </div>
 
     <button id="openRecorderButton">録音ウィンドウを開く</button>
-    <p class="hint">別ウィンドウで録音 → 完了するとここに戻ってOneDriveとExcelに保存します。</p>
+    <p class="hint">別ウィンドウで録音 → 完了するとMP3と履歴CSVをOneDriveに保存します。</p>
 
     <div id="status">サインインが完了したら、グループ名を入れて「録音ウィンドウを開く」を押してください。</div>
   </div>
@@ -77,10 +77,10 @@
     const PARENT_FOLDER_NAME = "録音くん保存フォルダ";
     const SUBFOLDER_SHEET_NAME = "シート1";
     const SUBFOLDER_CELL = "B1";
-    const HISTORY_SHEET_NAME = "History";
-    const HISTORY_HEADERS = ["ファイル名", "保存日時", "フォルダパス", "ファイルリンク"];
+    const HISTORY_CSV_NAME = "history.csv";
+    const HISTORY_HEADERS = ["保存日時", "ファイル名", "フォルダパス", "フォルダURL", "ファイルURL"];
     const SCOPES = ["Files.ReadWrite", "User.Read"];
-    const DIALOG_URL = "https://johnnymaeta.github.io/rokuongithub/microsoft-addin/dialog.html?v=6";
+    const DIALOG_URL = "https://johnnymaeta.github.io/rokuongithub/microsoft-addin/dialog.html?v=7";
 
     // ====== 状態 ======
     let msalInstance = null;
@@ -308,44 +308,50 @@
       }
     }
 
-    async function addRecordToHistorySheet(fileName, folderPathText, folderUrl, fileUrl) {
-      await Excel.run(async (context) => {
-        let sheet = context.workbook.worksheets.getItemOrNullObject(HISTORY_SHEET_NAME);
-        await context.sync();
+    async function appendHistoryToCsv(token, fileName, folderPathText, folderUrl, fileUrl) {
+      const csvPath = `${PARENT_FOLDER_NAME}/${HISTORY_CSV_NAME}`;
+      const apiUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/${encodeURIComponent(csvPath)}:/content`;
 
-        if (sheet.isNullObject) {
-          sheet = context.workbook.worksheets.add(HISTORY_SHEET_NAME);
-          await context.sync();
-        }
-
-        const used = sheet.getUsedRangeOrNullObject();
-        used.load("rowCount");
-        await context.sync();
-
-        let nextRow;
-        if (used.isNullObject) {
-          sheet.getRange("A1:D1").values = [HISTORY_HEADERS];
-          await context.sync();
-          nextRow = 2;
-        } else {
-          nextRow = used.rowCount + 1;
-        }
-
-        const ts = new Date();
-        const formattedTimestamp = ts.toLocaleString("ja-JP", {
-          timeZone: "Asia/Tokyo",
-          year: "numeric", month: "2-digit", day: "2-digit",
-          hour: "2-digit", minute: "2-digit", second: "2-digit",
-        });
-
-        sheet.getRange(`A${nextRow}:D${nextRow}`).values = [[
-          fileName,
-          formattedTimestamp,
-          `=HYPERLINK("${folderUrl}","${folderPathText}")`,
-          `=HYPERLINK("${fileUrl}","${fileName}")`,
-        ]];
-        await context.sync();
+      let existing = "";
+      const getRes = await fetch(apiUrl, {
+        headers: { Authorization: `Bearer ${token}` },
       });
+      if (getRes.ok) {
+        existing = await getRes.text();
+        if (existing.charCodeAt(0) === 0xfeff) existing = existing.slice(1);
+      } else if (getRes.status !== 404) {
+        const txt = await getRes.text();
+        throw new Error(`履歴CSV取得失敗 (${getRes.status}): ${txt}`);
+      }
+
+      let body = existing;
+      if (!body.trim()) body = HISTORY_HEADERS.join(",") + "\n";
+
+      const ts = new Date();
+      const formattedTimestamp = ts.toLocaleString("ja-JP", {
+        timeZone: "Asia/Tokyo",
+        year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", second: "2-digit",
+      });
+
+      const escapeCsv = (v) => `"${String(v).replace(/"/g, '""')}"`;
+      const row = [formattedTimestamp, fileName, folderPathText, folderUrl, fileUrl]
+        .map(escapeCsv)
+        .join(",");
+      body += row + "\n";
+
+      const putRes = await fetch(apiUrl, {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "text/csv; charset=utf-8",
+        },
+        body: String.fromCharCode(0xfeff) + body,
+      });
+      if (!putRes.ok) {
+        const txt = await putRes.text();
+        throw new Error(`履歴CSV保存失敗 (${putRes.status}): ${txt}`);
+      }
     }
 
     // ====== 保存フロー ======
@@ -376,8 +382,8 @@
         setStatus("OneDriveにアップロード中...");
         const uploaded = await uploadFile(token, target.id, finalFileName, mp3Blob);
 
-        setStatus("Excel の履歴シートに記録中...");
-        await addRecordToHistorySheet(finalFileName, folderPathText, target.webUrl, uploaded.webUrl);
+        setStatus("履歴CSVに記録中...");
+        await appendHistoryToCsv(token, finalFileName, folderPathText, target.webUrl, uploaded.webUrl);
 
         setStatus(`保存完了: ${folderPathText} に ${finalFileName} を保存しました。`, "success");
       } catch (e) {
