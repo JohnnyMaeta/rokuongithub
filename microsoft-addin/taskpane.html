@@ -308,16 +308,21 @@
       await Excel.run(async (context) => {
         let sheet = context.workbook.worksheets.getItemOrNullObject(HISTORY_SHEET_NAME);
         await context.sync();
+
+        let newRowIndex;
         if (sheet.isNullObject) {
           sheet = context.workbook.worksheets.add(HISTORY_SHEET_NAME);
           const headerRange = sheet.getRangeByIndexes(0, 0, 1, HISTORY_HEADERS.length);
           headerRange.values = [HISTORY_HEADERS];
           headerRange.format.font.bold = true;
+          await context.sync();
+          newRowIndex = 1;
+        } else {
+          const used = sheet.getUsedRange();
+          used.load("rowCount");
+          await context.sync();
+          newRowIndex = used.rowCount;
         }
-        const used = sheet.getUsedRangeOrNullObject();
-        used.load(["rowCount"]);
-        await context.sync();
-        const newRowIndex = used.isNullObject ? 0 : used.rowCount;
 
         const ts = new Date();
         const formattedTimestamp = ts.toLocaleString("ja-JP", {
@@ -370,8 +375,9 @@
 
         setStatus(`保存完了: ${folderPathText} に ${finalFileName} を保存しました。`, "success");
       } catch (e) {
-        console.error(e);
-        setStatus("保存失敗: " + e.message, "error");
+        console.error("saveToCloud failed:", e, e && e.debugInfo);
+        const detail = (e && e.code) ? ` [${e.code}]` : "";
+        setStatus("保存失敗: " + (e && e.message ? e.message : String(e)) + detail, "error");
       }
     }
 
