@@ -80,7 +80,7 @@
     const HISTORY_SHEET_NAME = "履歴";
     const HISTORY_HEADERS = ["ファイル名", "保存日時", "フォルダパス", "ファイルリンク"];
     const SCOPES = ["Files.ReadWrite", "User.Read"];
-    const DIALOG_URL = "https://johnnymaeta.github.io/rokuongithub/microsoft-addin/dialog.html?v=2";
+    const DIALOG_URL = "https://johnnymaeta.github.io/rokuongithub/microsoft-addin/dialog.html?v=3";
 
     // ====== 状態 ======
     let msalInstance = null;
@@ -311,6 +311,7 @@
 
         if (sheet.isNullObject) {
           sheet = context.workbook.worksheets.add();
+          await context.sync();
           sheet.name = HISTORY_SHEET_NAME;
           await context.sync();
         }
