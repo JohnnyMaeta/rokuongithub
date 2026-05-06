@@ -318,14 +318,13 @@
         used.load("rowCount");
         await context.sync();
 
-        let newRowIndex;
+        let nextRow;
         if (used.isNullObject) {
-          const headerRange = sheet.getRangeByIndexes(0, 0, 1, HISTORY_HEADERS.length);
-          headerRange.values = [HISTORY_HEADERS];
-          headerRange.format.font.bold = true;
-          newRowIndex = 1;
+          sheet.getRange("A1:D1").values = [HISTORY_HEADERS];
+          await context.sync();
+          nextRow = 2;
         } else {
-          newRowIndex = used.rowCount;
+          nextRow = used.rowCount + 1;
         }
 
         const ts = new Date();
@@ -335,8 +334,7 @@
           hour: "2-digit", minute: "2-digit", second: "2-digit",
         });
 
-        const newRow = sheet.getRangeByIndexes(newRowIndex, 0, 1, 4);
-        newRow.values = [[
+        sheet.getRange(`A${nextRow}:D${nextRow}`).values = [[
           fileName,
           formattedTimestamp,
           `=HYPERLINK("${folderUrl}","${folderPathText}")`,
