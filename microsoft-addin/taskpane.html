@@ -80,7 +80,7 @@
     const HISTORY_SHEET_NAME = "History";
     const HISTORY_HEADERS = ["ファイル名", "保存日時", "フォルダパス", "ファイルリンク"];
     const SCOPES = ["Files.ReadWrite", "User.Read"];
-    const DIALOG_URL = "https://johnnymaeta.github.io/rokuongithub/microsoft-addin/dialog.html?v=4";
+    const DIALOG_URL = "https://johnnymaeta.github.io/rokuongithub/microsoft-addin/dialog.html?v=5";
 
     // ====== 状態 ======
     let msalInstance = null;
@@ -310,16 +310,8 @@
         await context.sync();
 
         if (sheet.isNullObject) {
-          sheet = context.workbook.worksheets.add();
+          sheet = context.workbook.worksheets.add(HISTORY_SHEET_NAME);
           await context.sync();
-          try {
-            sheet.name = HISTORY_SHEET_NAME;
-            await context.sync();
-          } catch (renameErr) {
-            sheet.delete();
-            await context.sync();
-            throw renameErr;
-          }
         }
 
         const used = sheet.getUsedRangeOrNullObject();
