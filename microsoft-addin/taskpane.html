@@ -309,18 +309,22 @@
         let sheet = context.workbook.worksheets.getItemOrNullObject(HISTORY_SHEET_NAME);
         await context.sync();
 
-        let newRowIndex;
         if (sheet.isNullObject) {
           sheet = context.workbook.worksheets.add(HISTORY_SHEET_NAME);
+          await context.sync();
+        }
+
+        const used = sheet.getUsedRangeOrNullObject();
+        used.load("rowCount");
+        await context.sync();
+
+        let newRowIndex;
+        if (used.isNullObject) {
           const headerRange = sheet.getRangeByIndexes(0, 0, 1, HISTORY_HEADERS.length);
           headerRange.values = [HISTORY_HEADERS];
           headerRange.format.font.bold = true;
-          await context.sync();
           newRowIndex = 1;
         } else {
-          const used = sheet.getUsedRange();
-          used.load("rowCount");
-          await context.sync();
           newRowIndex = used.rowCount;
         }
 
