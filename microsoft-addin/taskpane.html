@@ -13,17 +13,12 @@
 
   <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.4/lib/msal-browser.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js"></script>
 
   <style>
     * { box-sizing: border-box; }
     body {
       font-family: 'Segoe UI', 'Hiragino Sans', sans-serif;
-      margin: 0;
-      padding: 12px;
-      background: #faf9f8;
-      color: #323130;
-      font-size: 14px;
+      margin: 0; padding: 12px; background: #faf9f8; color: #323130; font-size: 14px;
     }
     h1 { font-size: 18px; margin: 0 0 12px; color: #0078d4; }
     .section { background: #fff; padding: 12px; border-radius: 4px; margin-bottom: 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
@@ -43,10 +38,10 @@
     #status { padding: 8px; background: #f3f2f1; border-radius: 2px; font-size: 13px; min-height: 18px; margin-top: 8px; }
     #status.error { background: #fde7e9; color: #a4262c; }
     #status.success { background: #dff6dd; color: #107c10; }
-    #audioPlayback { width: 100%; margin-top: 8px; }
     .user-info { font-size: 12px; color: #605e5c; }
     .user-info a { color: #0078d4; cursor: pointer; }
     .hidden { display: none !important; }
+    .hint { font-size: 12px; color: #605e5c; margin: 4px 0 0; }
   </style>
 </head>
 <body>
@@ -70,12 +65,10 @@
       <input type="text" id="prefixName" placeholder="例: TeamA、John_Jane">
     </div>
 
-    <button id="recordButton">録音開始</button>
-    <button id="stopButton" class="secondary" disabled>停止</button>
-    <button id="saveButton" disabled>OneDriveに保存</button>
+    <button id="openRecorderButton">録音ウィンドウを開く</button>
+    <p class="hint">別ウィンドウで録音 → 完了するとここに戻ってOneDriveとExcelに保存します。</p>
 
-    <div id="status">サインインが完了したら、グループ名を入れて「録音開始」を押してください。</div>
-    <audio id="audioPlayback" controls class="hidden"></audio>
+    <div id="status">サインインが完了したら、グループ名を入れて「録音ウィンドウを開く」を押してください。</div>
   </div>
 
   <script>
@@ -87,15 +80,15 @@
     const HISTORY_SHEET_NAME = "履歴";
     const HISTORY_HEADERS = ["ファイル名", "保存日時", "フォルダパス", "ファイルリンク"];
     const SCOPES = ["Files.ReadWrite", "User.Read"];
+    const DIALOG_URL = "https://johnnymaeta.github.io/rokuongithub/microsoft-addin/dialog.html";
 
     // ====== 状態 ======
     let msalInstance = null;
-    let mediaRecorder = null;
-    let audioChunks = [];
-    let originalAudioBlob = null;
-    let stream = null;
+    let currentDialog = null;
+    let receivedChunks = [];
+    let receivedTotal = 0;
 
-    // ====== UI 要素 ======
+    // ====== UI ======
     const $ = (id) => document.getElementById(id);
     const els = {
       signinButton: $("signinButton"),
@@ -105,11 +98,8 @@
       userName: $("userName"),
       recorderSection: $("recorderSection"),
       prefixName: $("prefixName"),
-      recordButton: $("recordButton"),
-      stopButton: $("stopButton"),
-      saveButton: $("saveButton"),
+      openRecorderButton: $("openRecorderButton"),
       status: $("status"),
-      audioPlayback: $("audioPlayback"),
     };
 
     function setStatus(msg, kind) {
@@ -117,7 +107,6 @@
       els.status.className = kind || "";
     }
 
-    // ====== Office 起動 ======
     Office.onReady(() => {
       initMsal();
       bindEvents();
@@ -133,15 +122,12 @@
         },
         cache: { cacheLocation: "sessionStorage" },
       });
-
-      msalInstance.handleRedirectPromise().then(() => {
-        const accounts = msalInstance.getAllAccounts();
-        if (accounts.length > 0) {
-          showSignedIn(accounts[0]);
-        }
-      }).catch((e) => {
-        console.error(e);
-      });
+      msalInstance.handleRedirectPromise()
+        .then(() => {
+          const accounts = msalInstance.getAllAccounts();
+          if (accounts.length > 0) showSignedIn(accounts[0]);
+        })
+        .catch(console.error);
     }
 
     function showSignedIn(account) {
@@ -169,9 +155,7 @@
 
     function signOut() {
       const account = msalInstance.getAllAccounts()[0];
-      if (account) {
-        msalInstance.logoutPopup({ account }).catch(console.error);
-      }
+      if (account) msalInstance.logoutPopup({ account }).catch(console.error);
       showSignedOut();
     }
 
@@ -190,40 +174,94 @@
       }
     }
 
-    // ====== Microsoft Graph ======
-    async function graphGet(token, url) {
-      const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-      return r;
+    // ====== Dialog (録音ウィンドウ) ======
+    function openRecorderDialog() {
+      receivedChunks = [];
+      receivedTotal = 0;
+
+      Office.context.ui.displayDialogAsync(
+        DIALOG_URL,
+        { height: 60, width: 50, displayInIframe: false, promptBeforeOpen: false },
+        (asyncResult) => {
+          if (asyncResult.status === Office.AsyncResultStatus.Failed) {
+            setStatus("録音ウィンドウを開けませんでした: " + asyncResult.error.message, "error");
+            return;
+          }
+          currentDialog = asyncResult.value;
+          currentDialog.addEventHandler(Office.EventType.DialogMessageReceived, onDialogMessage);
+          currentDialog.addEventHandler(Office.EventType.DialogEventReceived, onDialogEvent);
+          setStatus("別ウィンドウで録音中...");
+        }
+      );
     }
 
+    function onDialogEvent(arg) {
+      console.log("Dialog event:", arg);
+    }
+
+    async function onDialogMessage(arg) {
+      let msg;
+      try {
+        msg = JSON.parse(arg.message);
+      } catch (e) {
+        console.error("メッセージ解析失敗:", e, arg.message);
+        return;
+      }
+
+      if (msg.type === "cancel") {
+        if (currentDialog) currentDialog.close();
+        currentDialog = null;
+        setStatus("キャンセルしました。");
+        return;
+      }
+      if (msg.type === "start") {
+        receivedChunks = new Array(msg.total);
+        receivedTotal = msg.total;
+        setStatus(`受信中... (0/${receivedTotal})`);
+        return;
+      }
+      if (msg.type === "chunk") {
+        receivedChunks[msg.index] = msg.data;
+        const got = receivedChunks.filter(Boolean).length;
+        setStatus(`受信中... (${got}/${receivedTotal})`);
+        return;
+      }
+      if (msg.type === "end") {
+        if (currentDialog) currentDialog.close();
+        currentDialog = null;
+
+        const b64 = receivedChunks.join("");
+        receivedChunks = [];
+        try {
+          const bin = atob(b64);
+          const u8 = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+          const blob = new Blob([u8], { type: "audio/mpeg" });
+          await saveToCloud(blob);
+        } catch (e) {
+          console.error(e);
+          setStatus("保存処理でエラー: " + e.message, "error");
+        }
+      }
+    }
+
+    // ====== Microsoft Graph (OneDrive) ======
     async function ensureFolder(token, folderName, parentItemId) {
-      // 親アイテムIDが指定されない場合はルート直下
       const childrenUrl = parentItemId
         ? `https://graph.microsoft.com/v1.0/me/drive/items/${parentItemId}/children`
         : `https://graph.microsoft.com/v1.0/me/drive/root/children`;
-
-      // 既存チェック: children を取得して name 一致するものを探す
-      const listRes = await graphGet(token, `${childrenUrl}?$select=id,name,webUrl,folder&$top=200`);
+      const listRes = await fetch(`${childrenUrl}?$select=id,name,webUrl,folder&$top=200`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       if (listRes.ok) {
         const data = await listRes.json();
-        const found = (data.value || []).find(
-          (x) => x.folder && x.name === folderName
-        );
+        const found = (data.value || []).find((x) => x.folder && x.name === folderName);
         if (found) return found;
       }
-
-      // 作成
       const createRes = await fetch(childrenUrl, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          name: folderName,
-          folder: {},
-          "@microsoft.graph.conflictBehavior": "fail",
-        }),
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ name: folderName, folder: {}, "@microsoft.graph.conflictBehavior": "fail" }),
       });
       if (!createRes.ok) {
         const txt = await createRes.text();
@@ -236,10 +274,7 @@
       const url = `https://graph.microsoft.com/v1.0/me/drive/items/${parentItemId}:/${encodeURIComponent(fileName)}:/content`;
       const r = await fetch(url, {
         method: "PUT",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "audio/mpeg",
-        },
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "audio/mpeg" },
         body: blob,
       });
       if (!r.ok) {
@@ -255,9 +290,7 @@
         return await Excel.run(async (context) => {
           let sheet = context.workbook.worksheets.getItemOrNullObject(SUBFOLDER_SHEET_NAME);
           await context.sync();
-          if (sheet.isNullObject) {
-            sheet = context.workbook.worksheets.getFirst();
-          }
+          if (sheet.isNullObject) sheet = context.workbook.worksheets.getFirst();
           const range = sheet.getRange(SUBFOLDER_CELL);
           range.load("values");
           await context.sync();
@@ -304,103 +337,9 @@
       });
     }
 
-    // ====== 録音 + MP3 エンコード ======
-    async function startRecording() {
+    // ====== 保存フロー ======
+    async function saveToCloud(mp3Blob) {
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const options = { mimeType: "audio/webm;codecs=opus" };
-        if (!MediaRecorder.isTypeSupported(options.mimeType)) {
-          delete options.mimeType;
-        }
-        mediaRecorder = new MediaRecorder(stream, options);
-        mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
-        mediaRecorder.onstop = () => {
-          originalAudioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType });
-          const url = URL.createObjectURL(originalAudioBlob);
-          els.audioPlayback.src = url;
-          els.audioPlayback.classList.remove("hidden");
-
-          els.recordButton.disabled = false;
-          els.stopButton.disabled = true;
-          els.saveButton.disabled = false;
-          els.prefixName.disabled = false;
-          setStatus("録音停止。再生またはOneDriveに保存できます。");
-          audioChunks = [];
-        };
-
-        audioChunks = [];
-        mediaRecorder.start();
-        setStatus("録音中...");
-        els.recordButton.disabled = true;
-        els.stopButton.disabled = false;
-        els.saveButton.disabled = true;
-        els.prefixName.disabled = true;
-        els.audioPlayback.classList.add("hidden");
-        els.audioPlayback.src = "";
-      } catch (err) {
-        console.error("マイクアクセスエラー:", err);
-        setStatus("マイクにアクセスできませんでした。ブラウザのマイク許可を確認してください。", "error");
-      }
-    }
-
-    function stopRecording() {
-      if (mediaRecorder && mediaRecorder.state !== "inactive") {
-        mediaRecorder.stop();
-      }
-      if (stream) {
-        stream.getTracks().forEach((t) => t.stop());
-        stream = null;
-      }
-    }
-
-    async function encodeToMp3(audioBlob) {
-      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      const arrayBuffer = await audioBlob.arrayBuffer();
-      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer).catch((e) => {
-        throw new Error("音声デコード失敗: " + e.message);
-      });
-      const numChannels = audioBuffer.numberOfChannels;
-      const sampleRate = audioBuffer.sampleRate;
-      const kbps = 128;
-      const enc = new lamejs.Mp3Encoder(numChannels, sampleRate, kbps);
-      const mp3Data = [];
-      const pcm = [];
-      for (let i = 0; i < numChannels; i++) pcm.push(audioBuffer.getChannelData(i));
-      const left = new Int16Array(pcm[0].length);
-      for (let i = 0; i < pcm[0].length; i++) left[i] = Math.max(-1, Math.min(1, pcm[0][i])) * 32767;
-      let right = null;
-      if (numChannels > 1) {
-        right = new Int16Array(pcm[1].length);
-        for (let i = 0; i < pcm[1].length; i++) right[i] = Math.max(-1, Math.min(1, pcm[1][i])) * 32767;
-      }
-      const block = 1152;
-      let buf;
-      for (let i = 0; i < left.length; i += block) {
-        const l = left.subarray(i, i + block);
-        const r = right ? right.subarray(i, i + block) : null;
-        buf = numChannels === 1 ? enc.encodeBuffer(l) : enc.encodeBuffer(l, r);
-        if (buf.length > 0) mp3Data.push(buf);
-      }
-      buf = enc.flush();
-      if (buf.length > 0) mp3Data.push(buf);
-      return new Blob(mp3Data, { type: "audio/mpeg" });
-    }
-
-    // ====== 保存フロー（録音→MP3→OneDrive→履歴）======
-    async function saveToCloud() {
-      if (!originalAudioBlob) {
-        setStatus("保存する録音データがありません。", "error");
-        return;
-      }
-
-      els.saveButton.disabled = true;
-      els.recordButton.disabled = true;
-      els.prefixName.disabled = true;
-
-      try {
-        setStatus("MP3にエンコード中...");
-        const mp3Blob = await encodeToMp3(originalAudioBlob);
-
         setStatus("OneDriveに接続中...");
         const token = await getAccessToken();
 
@@ -433,20 +372,14 @@
       } catch (e) {
         console.error(e);
         setStatus("保存失敗: " + e.message, "error");
-        els.saveButton.disabled = false;
-      } finally {
-        els.recordButton.disabled = false;
-        els.prefixName.disabled = false;
       }
     }
 
-    // ====== イベントバインド ======
+    // ====== イベント ======
     function bindEvents() {
       els.signinButton.onclick = signIn;
       els.signoutLink.onclick = signOut;
-      els.recordButton.onclick = startRecording;
-      els.stopButton.onclick = stopRecording;
-      els.saveButton.onclick = saveToCloud;
+      els.openRecorderButton.onclick = openRecorderDialog;
     }
   </script>
 </body>

@@ -1,0 +1,187 @@
+<!--
+  @license
+  MIT License - Copyright (c) 2024 Masaaki Maeta
+-->
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+  <title>録音くん - 録音</title>
+  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', 'Hiragino Sans', sans-serif;
+      margin: 0; padding: 24px;
+      background: #faf9f8; color: #323130; font-size: 14px;
+    }
+    .wrap { max-width: 480px; margin: auto; background: #fff; padding: 20px; border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    h1 { font-size: 18px; margin: 0 0 16px; color: #0078d4; }
+    button {
+      background: #0078d4; color: #fff; border: none; padding: 10px 20px;
+      font-size: 14px; cursor: pointer; border-radius: 2px; margin: 4px 4px 4px 0;
+    }
+    button:hover:not(:disabled) { background: #106ebe; }
+    button:disabled { background: #c8c6c4; cursor: not-allowed; }
+    button.secondary { background: #fff; color: #323130; border: 1px solid #8a8886; }
+    button.secondary:hover:not(:disabled) { background: #f3f2f1; }
+    #status { padding: 8px; background: #f3f2f1; border-radius: 2px; min-height: 18px; margin-top: 12px; }
+    #status.error { background: #fde7e9; color: #a4262c; }
+    #status.success { background: #dff6dd; color: #107c10; }
+    audio { width: 100%; margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>録音</h1>
+    <p>マイクへのアクセスを許可してください。</p>
+    <button id="recordButton">録音開始</button>
+    <button id="stopButton" class="secondary" disabled>停止</button>
+    <button id="sendButton" disabled>この録音をアップロード</button>
+    <button id="cancelButton" class="secondary">キャンセル</button>
+    <div id="status">準備完了。録音開始を押してください。</div>
+    <audio id="audioPlayback" controls style="display:none;"></audio>
+  </div>
+
+  <script>
+    let mediaRecorder = null;
+    let audioChunks = [];
+    let originalAudioBlob = null;
+    let stream = null;
+
+    const $ = (id) => document.getElementById(id);
+    const els = {
+      recordButton: $("recordButton"),
+      stopButton: $("stopButton"),
+      sendButton: $("sendButton"),
+      cancelButton: $("cancelButton"),
+      status: $("status"),
+      audioPlayback: $("audioPlayback"),
+    };
+
+    function setStatus(msg, kind) {
+      els.status.textContent = msg;
+      els.status.className = kind || "";
+    }
+
+    Office.onReady(() => {
+      els.recordButton.onclick = startRecording;
+      els.stopButton.onclick = stopRecording;
+      els.sendButton.onclick = sendToParent;
+      els.cancelButton.onclick = () => {
+        Office.context.ui.messageParent(JSON.stringify({ type: "cancel" }));
+      };
+    });
+
+    async function startRecording() {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const options = { mimeType: "audio/webm;codecs=opus" };
+        if (!MediaRecorder.isTypeSupported(options.mimeType)) delete options.mimeType;
+        mediaRecorder = new MediaRecorder(stream, options);
+        mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
+        mediaRecorder.onstop = () => {
+          originalAudioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType });
+          els.audioPlayback.src = URL.createObjectURL(originalAudioBlob);
+          els.audioPlayback.style.display = "block";
+          els.recordButton.disabled = false;
+          els.stopButton.disabled = true;
+          els.sendButton.disabled = false;
+          setStatus("録音停止。「アップロード」を押すとExcel/OneDriveに保存します。");
+          audioChunks = [];
+        };
+        audioChunks = [];
+        mediaRecorder.start();
+        setStatus("録音中...");
+        els.recordButton.disabled = true;
+        els.stopButton.disabled = false;
+        els.sendButton.disabled = true;
+        els.audioPlayback.style.display = "none";
+      } catch (err) {
+        console.error("マイクアクセスエラー:", err);
+        setStatus("マイクにアクセスできませんでした: " + err.message, "error");
+      }
+    }
+
+    function stopRecording() {
+      if (mediaRecorder && mediaRecorder.state !== "inactive") mediaRecorder.stop();
+      if (stream) {
+        stream.getTracks().forEach((t) => t.stop());
+        stream = null;
+      }
+    }
+
+    async function encodeToMp3(audioBlob) {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const buf = await audioBlob.arrayBuffer();
+      const audioBuffer = await ctx.decodeAudioData(buf);
+      const numCh = audioBuffer.numberOfChannels;
+      const sr = audioBuffer.sampleRate;
+      const enc = new lamejs.Mp3Encoder(numCh, sr, 128);
+      const mp3 = [];
+      const pcm = [];
+      for (let i = 0; i < numCh; i++) pcm.push(audioBuffer.getChannelData(i));
+      const left = new Int16Array(pcm[0].length);
+      for (let i = 0; i < pcm[0].length; i++) left[i] = Math.max(-1, Math.min(1, pcm[0][i])) * 32767;
+      let right = null;
+      if (numCh > 1) {
+        right = new Int16Array(pcm[1].length);
+        for (let i = 0; i < pcm[1].length; i++) right[i] = Math.max(-1, Math.min(1, pcm[1][i])) * 32767;
+      }
+      const block = 1152;
+      let chunk;
+      for (let i = 0; i < left.length; i += block) {
+        const l = left.subarray(i, i + block);
+        const r = right ? right.subarray(i, i + block) : null;
+        chunk = numCh === 1 ? enc.encodeBuffer(l) : enc.encodeBuffer(l, r);
+        if (chunk.length > 0) mp3.push(chunk);
+      }
+      chunk = enc.flush();
+      if (chunk.length > 0) mp3.push(chunk);
+      return new Blob(mp3, { type: "audio/mpeg" });
+    }
+
+    async function sendToParent() {
+      if (!originalAudioBlob) return;
+      els.sendButton.disabled = true;
+      els.recordButton.disabled = true;
+      els.cancelButton.disabled = true;
+
+      try {
+        setStatus("MP3にエンコード中...");
+        const mp3 = await encodeToMp3(originalAudioBlob);
+
+        setStatus("親ウィンドウに送信中...");
+        const buf = await mp3.arrayBuffer();
+        const u8 = new Uint8Array(buf);
+        let bin = "";
+        for (let i = 0; i < u8.length; i++) bin += String.fromCharCode(u8[i]);
+        const b64 = btoa(bin);
+
+        const CHUNK = 30000;
+        const total = Math.ceil(b64.length / CHUNK);
+
+        Office.context.ui.messageParent(JSON.stringify({ type: "start", total }));
+        for (let i = 0; i < total; i++) {
+          Office.context.ui.messageParent(JSON.stringify({
+            type: "chunk",
+            index: i,
+            data: b64.substring(i * CHUNK, (i + 1) * CHUNK),
+          }));
+        }
+        Office.context.ui.messageParent(JSON.stringify({ type: "end" }));
+        setStatus("送信完了。このウィンドウは自動的に閉じます。", "success");
+      } catch (e) {
+        console.error(e);
+        setStatus("送信失敗: " + e.message, "error");
+        els.sendButton.disabled = false;
+        els.recordButton.disabled = false;
+        els.cancelButton.disabled = false;
+      }
+    }
+  </script>
+</body>
+</html>
