@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>録音くん - 管理者設定</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', 'Hiragino Sans', sans-serif;
+      max-width: 640px; margin: 40px auto; padding: 20px;
+      color: #323130; background: #faf9f8;
+    }
+    h1 { color: #0078d4; font-size: 28px; margin-bottom: 8px; }
+    .subtitle { color: #605e5c; margin-top: 0; margin-bottom: 32px; }
+    .card { background: #fff; padding: 24px; border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 16px; }
+    button {
+      background: #0078d4; color: #fff; border: none;
+      padding: 14px 28px; font-size: 16px; cursor: pointer; border-radius: 4px;
+      font-weight: 600;
+    }
+    button:hover { background: #106ebe; }
+    .box { padding: 16px; border-radius: 4px; margin: 16px 0; }
+    .ok { background: #dff6dd; color: #107c10; border-left: 4px solid #107c10; }
+    .err { background: #fde7e9; color: #a4262c; border-left: 4px solid #a4262c; }
+    .info { background: #f3f2f1; }
+    code { background: #f3f2f1; padding: 2px 6px; border-radius: 2px; font-size: 13px; }
+    a { color: #0078d4; }
+  </style>
+</head>
+<body>
+  <h1>🎙️ 録音くん - 管理者設定</h1>
+  <p class="subtitle">このページから1回だけMicrosoftアカウントにサインインしてください。あなたのOneDriveが、子どもたちの録音保存先になります。</p>
+
+  <div id="result"></div>
+
+  <div class="card">
+    <h2 style="margin-top:0">サインイン</h2>
+    <p>サインインすると、子どもたちが録音した音声があなたのOneDrive内 <code>録音くん保存フォルダ/</code> に自動保存されるようになります。</p>
+    <button id="signinBtn">Microsoftアカウントでサインイン</button>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">サインイン後の使い方</h2>
+    <ol>
+      <li>このサイトのトップページURL（<code id="rootUrl">/</code>）を子どもたちに共有</li>
+      <li>子どもたちは<strong>サインイン不要</strong>でアクセスして録音できる</li>
+      <li>録音は <code>OneDrive/録音くん保存フォルダ/[グループ名]/</code> に保存</li>
+      <li>履歴は同フォルダの <code>history.csv</code> に追記</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">⚠️ 注意</h2>
+    <ul>
+      <li>このページのURLは<strong>公開しないでください</strong>（誰かにアクセスされても被害は限定的ですが、念のため）</li>
+      <li>リフレッシュトークンは90日間使用がない場合に失効します。失効した場合は再度サインインしてください</li>
+      <li>サインアウト・解除には Vercel ダッシュボードで KV を削除してください</li>
+    </ul>
+  </div>
+
+  <script>
+    document.getElementById('rootUrl').textContent = location.origin + '/';
+
+    const params = new URLSearchParams(location.search);
+    const result = document.getElementById('result');
+
+    if (params.get('status') === 'success') {
+      const email = params.get('email') || '';
+      result.innerHTML = `<div class="box ok">✅ サインイン完了！${email ? '（' + email + '）' : ''}<br>このサイトのURL <strong>${location.origin}/</strong> を子どもたちに共有してください。</div>`;
+      history.replaceState(null, '', location.pathname);
+    } else if (params.get('error')) {
+      result.innerHTML = `<div class="box err">❌ エラー: ${params.get('error')}</div>`;
+    }
+
+    document.getElementById('signinBtn').onclick = () => {
+      location.href = '/api/auth-start';
+    };
+  </script>
+</body>
+</html>

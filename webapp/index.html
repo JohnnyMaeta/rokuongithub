@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+  <title>録音くん</title>
+  <script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', 'Hiragino Sans', sans-serif;
+      max-width: 480px; margin: 0 auto; padding: 20px;
+      color: #323130; background: #faf9f8; min-height: 100vh;
+    }
+    h1 { color: #0078d4; font-size: 28px; margin-bottom: 4px; }
+    .subtitle { color: #605e5c; font-size: 13px; margin-top: 0; margin-bottom: 24px; }
+    .card {
+      background: #fff; padding: 20px; border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 16px;
+    }
+    label { display: block; font-weight: 600; margin-bottom: 6px; font-size: 14px; }
+    input[type=text] {
+      width: 100%; padding: 10px; border: 1px solid #c8c6c4;
+      border-radius: 4px; font-size: 16px;
+    }
+    button {
+      background: #0078d4; color: #fff; border: none;
+      padding: 14px 20px; font-size: 16px; cursor: pointer;
+      border-radius: 4px; margin: 4px 4px 4px 0; font-weight: 600;
+      min-width: 120px;
+    }
+    button:hover:not(:disabled) { background: #106ebe; }
+    button.secondary { background: #fff; color: #323130; border: 1px solid #8a8886; }
+    button.secondary:hover:not(:disabled) { background: #f3f2f1; }
+    button.danger { background: #d13438; }
+    button.danger:hover:not(:disabled) { background: #a4262c; }
+    button:disabled { background: #c8c6c4; color: #fff; cursor: not-allowed; border-color: #c8c6c4; }
+    #status {
+      padding: 12px; background: #f3f2f1; border-radius: 4px;
+      min-height: 22px; font-size: 14px; line-height: 1.5;
+    }
+    #status.ok { background: #dff6dd; color: #107c10; }
+    #status.err { background: #fde7e9; color: #a4262c; }
+    audio { width: 100%; margin-top: 12px; }
+    .recording-indicator {
+      display: inline-block; width: 12px; height: 12px;
+      background: #d13438; border-radius: 50%; margin-right: 6px;
+      animation: blink 1s infinite;
+    }
+    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+  </style>
+</head>
+<body>
+  <h1>🎙️ 録音くん</h1>
+  <p class="subtitle">マイクで録音 → MP3でクラウドに保存します</p>
+
+  <div class="card">
+    <label for="groupName">グループ名・ペア名</label>
+    <input id="groupName" type="text" placeholder="例: TeamA" autocomplete="off">
+    <p style="font-size:12px;color:#605e5c;margin:6px 0 0">ファイル名と保存フォルダの先頭に付きます</p>
+  </div>
+
+  <div class="card">
+    <button id="recordBtn">🎙️ 録音開始</button>
+    <button id="stopBtn" class="danger" disabled>⏹ 停止</button>
+    <audio id="playback" controls style="display:none"></audio>
+    <div id="actions" style="display:none;margin-top:12px">
+      <button id="sendBtn">☁️ アップロード</button>
+      <button id="redoBtn" class="secondary">録り直す</button>
+    </div>
+    <div id="status" style="margin-top:12px">マイクの使用を許可して、録音を開始してください。</div>
+  </div>
+
+  <script>
+    let mediaRecorder = null;
+    let chunks = [];
+    let blob = null;
+    let stream = null;
+
+    const $ = (id) => document.getElementById(id);
+    const els = {
+      groupName: $('groupName'),
+      recordBtn: $('recordBtn'),
+      stopBtn: $('stopBtn'),
+      sendBtn: $('sendBtn'),
+      redoBtn: $('redoBtn'),
+      actions: $('actions'),
+      playback: $('playback'),
+      status: $('status'),
+    };
+
+    function setStatus(msg, kind) {
+      els.status.innerHTML = msg;
+      els.status.className = kind || '';
+    }
+
+    function resetUI() {
+      els.recordBtn.disabled = false;
+      els.stopBtn.disabled = true;
+      els.actions.style.display = 'none';
+      els.playback.style.display = 'none';
+      blob = null;
+    }
+
+    els.recordBtn.onclick = async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const opts = { mimeType: 'audio/webm;codecs=opus' };
+        if (!MediaRecorder.isTypeSupported(opts.mimeType)) delete opts.mimeType;
+        mediaRecorder = new MediaRecorder(stream, opts);
+        chunks = [];
+        mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+        mediaRecorder.onstop = () => {
+          blob = new Blob(chunks, { type: mediaRecorder.mimeType });
+          els.playback.src = URL.createObjectURL(blob);
+          els.playback.style.display = 'block';
+          els.actions.style.display = 'block';
+          els.recordBtn.disabled = false;
+          els.stopBtn.disabled = true;
+          setStatus('再生して内容を確認してから「アップロード」を押してください。');
+        };
+        mediaRecorder.start();
+        els.recordBtn.disabled = true;
+        els.stopBtn.disabled = false;
+        els.actions.style.display = 'none';
+        els.playback.style.display = 'none';
+        setStatus('<span class="recording-indicator"></span>録音中…');
+      } catch (e) {
+        setStatus('マイクにアクセスできません: ' + e.message, 'err');
+      }
+    };
+
+    els.stopBtn.onclick = () => {
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+      if (stream) {
+        stream.getTracks().forEach((t) => t.stop());
+        stream = null;
+      }
+    };
+
+    els.redoBtn.onclick = () => {
+      resetUI();
+      setStatus('録音を開始してください。');
+    };
+
+    els.sendBtn.onclick = async () => {
+      if (!blob) return;
+      const group = els.groupName.value.trim();
+
+      els.sendBtn.disabled = true;
+      els.redoBtn.disabled = true;
+      els.recordBtn.disabled = true;
+
+      try {
+        setStatus('MP3に変換中…');
+        const mp3 = await encodeToMp3(blob);
+
+        const fileName = makeFileName(group);
+        setStatus('アップロード先を取得中…');
+        const r1 = await fetch('/api/upload-url', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fileName, subFolder: group }),
+        });
+        if (!r1.ok) {
+          const err = await r1.json().catch(() => ({}));
+          throw new Error(err.error || ('upload-url HTTP ' + r1.status));
+        }
+        const { uploadUrl } = await r1.json();
+
+        setStatus('OneDriveにアップロード中…');
+        const r2 = await fetch(uploadUrl, {
+          method: 'PUT',
+          headers: {
+            'Content-Length': String(mp3.size),
+            'Content-Range': `bytes 0-${mp3.size - 1}/${mp3.size}`,
+          },
+          body: mp3,
+        });
+        if (!r2.ok) throw new Error('OneDrive上書きエラー: ' + r2.status);
+        const item = await r2.json();
+
+        await fetch('/api/log-history', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fileName,
+            subFolder: group,
+            fileUrl: item.webUrl || '',
+          }),
+        }).catch(() => {});
+
+        setStatus(`✅ アップロード完了！<br><small>${fileName}</small>`, 'ok');
+        resetUI();
+        els.redoBtn.disabled = false;
+        els.sendBtn.disabled = false;
+      } catch (e) {
+        setStatus('エラー: ' + e.message, 'err');
+        els.sendBtn.disabled = false;
+        els.redoBtn.disabled = false;
+        els.recordBtn.disabled = false;
+      }
+    };
+
+    function makeFileName(group) {
+      const now = new Date();
+      const pad = (n) => String(n).padStart(2, '0');
+      const ts = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+      const prefix = group ? `${group}_` : '';
+      return `${prefix}${ts}.mp3`;
+    }
+
+    async function encodeToMp3(audioBlob) {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const buf = await audioBlob.arrayBuffer();
+      const audioBuffer = await ctx.decodeAudioData(buf);
+      const numCh = audioBuffer.numberOfChannels;
+      const sr = audioBuffer.sampleRate;
+      const enc = new lamejs.Mp3Encoder(numCh, sr, 128);
+      const mp3 = [];
+      const pcm = [];
+      for (let i = 0; i < numCh; i++) pcm.push(audioBuffer.getChannelData(i));
+      const left = new Int16Array(pcm[0].length);
+      for (let i = 0; i < pcm[0].length; i++) left[i] = Math.max(-1, Math.min(1, pcm[0][i])) * 32767;
+      let right = null;
+      if (numCh > 1) {
+        right = new Int16Array(pcm[1].length);
+        for (let i = 0; i < pcm[1].length; i++) right[i] = Math.max(-1, Math.min(1, pcm[1][i])) * 32767;
+      }
+      const block = 1152;
+      let chunk;
+      for (let i = 0; i < left.length; i += block) {
+        const l = left.subarray(i, i + block);
+        const r = right ? right.subarray(i, i + block) : null;
+        chunk = numCh === 1 ? enc.encodeBuffer(l) : enc.encodeBuffer(l, r);
+        if (chunk.length > 0) mp3.push(chunk);
+      }
+      chunk = enc.flush();
+      if (chunk.length > 0) mp3.push(chunk);
+      return new Blob(mp3, { type: 'audio/mpeg' });
+    }
+  </script>
+</body>
+</html>
