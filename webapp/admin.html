@@ -55,9 +55,9 @@
   </div>
 
   <div class="card">
-    <h2 style="margin-top:0">② グループ名を登録</h2>
-    <p>子どもたちのドロップダウンに表示されるグループ名（フォルダ名）を、<strong>1行に1つずつ</strong>入力してください。</p>
-    <textarea id="groupsText" placeholder="TeamA&#10;TeamB&#10;Pair1&#10;Pair2" spellcheck="false"></textarea>
+    <h2 style="margin-top:0">② 保存先フォルダ名を登録</h2>
+    <p>子どもたちのドロップダウンに表示される<strong>保存先フォルダ名</strong>を、<strong>1行に1つずつ</strong>入力してください（テーマや課題ごと、クラスごとなど自由に）。</p>
+    <textarea id="groupsText" placeholder="ラーメンについて&#10;町の良いところ&#10;1学期の感想" spellcheck="false"></textarea>
     <p class="hint">記号 <code>&lt; &gt; : " / \ | ? *</code> は自動で <code>_</code> に置換されます。重複と空行は無視。最大100件・各40文字まで。</p>
     <div style="margin-top:12px">
       <button id="saveGroupsBtn">保存</button>
@@ -70,8 +70,8 @@
     <h2 style="margin-top:0">③ 子どもたちにURLを共有</h2>
     <ol>
       <li>このサイトのトップページURL（<code id="rootUrl">/</code>）を子どもたちに共有</li>
-      <li>子どもたちは<strong>サインイン不要</strong>で、登録したグループから1つ選んで録音できます</li>
-      <li>録音は <code>OneDrive/録音くん保存フォルダ/[グループ名]/</code> に保存</li>
+      <li>子どもたちは<strong>サインイン不要</strong>で、登録した保存先フォルダから1つ選び、自分の名前やグループ名を入力して録音します</li>
+      <li>録音は <code>OneDrive/録音くん保存フォルダ/[選んだフォルダ名]/[入力した名前]_[日時].mp3</code> として保存</li>
       <li>履歴は <code>OneDrive/録音くん保存フォルダ/history.csv</code> に追記</li>
     </ol>
   </div>

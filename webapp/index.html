@@ -56,11 +56,17 @@
   <p class="subtitle">マイクで録音 → MP3でクラウドに保存します</p>
 
   <div class="card">
-    <label for="groupName">グループ名・ペア名</label>
+    <label for="groupName">保存先フォルダ名</label>
     <select id="groupName" disabled>
       <option value="">読み込み中...</option>
     </select>
-    <p style="font-size:12px;color:#605e5c;margin:6px 0 0">先生が登録したグループから1つ選んでください</p>
+    <p style="font-size:12px;color:#605e5c;margin:6px 0 0">先生が登録したフォルダから1つ選んでください</p>
+  </div>
+
+  <div class="card">
+    <label for="filePrefix">グループ名・ペア名・個人名</label>
+    <input id="filePrefix" type="text" placeholder="例: 1班 / 田中・佐藤 / 山田太郎" autocomplete="off">
+    <p style="font-size:12px;color:#605e5c;margin:6px 0 0">ファイル名の先頭に付きます（後ろに録音日時が自動で追加されます）</p>
   </div>
 
   <div class="card">
@@ -83,6 +89,7 @@
     const $ = (id) => document.getElementById(id);
     const els = {
       groupName: $('groupName'),
+      filePrefix: $('filePrefix'),
       recordBtn: $('recordBtn'),
       stopBtn: $('stopBtn'),
       sendBtn: $('sendBtn'),
@@ -183,8 +190,9 @@
     els.sendBtn.onclick = async () => {
       if (!blob) return;
       const group = els.groupName.value.trim();
+      const prefix = els.filePrefix.value.trim();
       if (!group) {
-        setStatus('グループを選んでください。', 'err');
+        setStatus('保存先フォルダを選んでください。', 'err');
         return;
       }
 
@@ -196,7 +204,7 @@
         setStatus('MP3に変換中…');
         const mp3 = await encodeToMp3(blob);
 
-        const fileName = makeFileName(group);
+        const fileName = makeFileName(prefix);
         setStatus('アップロード先を取得中…');
         const r1 = await fetch('/api/upload-url', {
           method: 'POST',
@@ -243,11 +251,16 @@
       }
     };
 
-    function makeFileName(group) {
+    function sanitizeForFileName(s) {
+      return String(s || '').replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').trim();
+    }
+
+    function makeFileName(prefixRaw) {
       const now = new Date();
       const pad = (n) => String(n).padStart(2, '0');
       const ts = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-      const prefix = group ? `${group}_` : '';
+      const cleaned = sanitizeForFileName(prefixRaw);
+      const prefix = cleaned ? `${cleaned}_` : '';
       return `${prefix}${ts}.mp3`;
     }
 
