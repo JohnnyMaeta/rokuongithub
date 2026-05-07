@@ -1,4 +1,4 @@
-import { getAccessToken } from '../lib/graph.js';
+import { getAccessToken, getGroups } from '../lib/graph.js';
 
 const FOLDER_ROOT = '録音くん保存フォルダ';
 
@@ -17,6 +17,14 @@ export default async function handler(req, res) {
 
   if (!fileName) {
     return res.status(400).json({ error: 'fileName is required' });
+  }
+
+  const groups = await getGroups();
+  if (groups.length === 0) {
+    return res.status(503).json({ error: '管理者がまだグループを設定していません。先生に連絡してください。' });
+  }
+  if (!subFolder || !groups.includes(subFolder)) {
+    return res.status(400).json({ error: 'グループが選択されていないか、管理者が設定したグループと一致しません。' });
   }
 
   let accessToken;

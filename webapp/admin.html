@@ -12,6 +12,7 @@
       color: #323130; background: #faf9f8;
     }
     h1 { color: #0078d4; font-size: 28px; margin-bottom: 8px; }
+    h2 { font-size: 20px; }
     .subtitle { color: #605e5c; margin-top: 0; margin-bottom: 32px; }
     .card { background: #fff; padding: 24px; border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 16px; }
     button {
@@ -19,34 +20,59 @@
       padding: 14px 28px; font-size: 16px; cursor: pointer; border-radius: 4px;
       font-weight: 600;
     }
-    button:hover { background: #106ebe; }
+    button:hover:not(:disabled) { background: #106ebe; }
+    button:disabled { background: #c8c6c4; cursor: not-allowed; }
+    button.secondary { background: #fff; color: #323130; border: 1px solid #8a8886; padding: 10px 16px; font-size: 14px; }
+    button.secondary:hover:not(:disabled) { background: #f3f2f1; }
+    textarea {
+      width: 100%; min-height: 180px; padding: 10px; font-size: 15px;
+      border: 1px solid #c8c6c4; border-radius: 4px; font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+      line-height: 1.6;
+    }
     .box { padding: 16px; border-radius: 4px; margin: 16px 0; }
     .ok { background: #dff6dd; color: #107c10; border-left: 4px solid #107c10; }
     .err { background: #fde7e9; color: #a4262c; border-left: 4px solid #a4262c; }
     .info { background: #f3f2f1; }
     code { background: #f3f2f1; padding: 2px 6px; border-radius: 2px; font-size: 13px; }
     a { color: #0078d4; }
+    .hint { color: #605e5c; font-size: 13px; margin: 6px 0 0; }
+    .group-status { font-size: 13px; margin-top: 8px; min-height: 18px; }
+    .group-status.ok { color: #107c10; }
+    .group-status.err { color: #a4262c; }
+    .hidden { display: none; }
   </style>
 </head>
 <body>
   <h1>🎙️ 録音くん - 管理者設定</h1>
-  <p class="subtitle">このページから1回だけMicrosoftアカウントにサインインしてください。あなたのOneDriveが、子どもたちの録音保存先になります。</p>
+  <p class="subtitle">このページから1回だけMicrosoftアカウントにサインインし、子どもたちが選ぶグループ名を登録してください。</p>
 
   <div id="result"></div>
 
   <div class="card">
-    <h2 style="margin-top:0">サインイン</h2>
+    <h2 style="margin-top:0">① サインイン</h2>
     <p>サインインすると、子どもたちが録音した音声があなたのOneDrive内 <code>録音くん保存フォルダ/</code> に自動保存されるようになります。</p>
     <button id="signinBtn">Microsoftアカウントでサインイン</button>
   </div>
 
   <div class="card">
-    <h2 style="margin-top:0">サインイン後の使い方</h2>
+    <h2 style="margin-top:0">② グループ名を登録</h2>
+    <p>子どもたちのドロップダウンに表示されるグループ名（フォルダ名）を、<strong>1行に1つずつ</strong>入力してください。</p>
+    <textarea id="groupsText" placeholder="TeamA&#10;TeamB&#10;Pair1&#10;Pair2" spellcheck="false"></textarea>
+    <p class="hint">記号 <code>&lt; &gt; : " / \ | ? *</code> は自動で <code>_</code> に置換されます。重複と空行は無視。最大100件・各40文字まで。</p>
+    <div style="margin-top:12px">
+      <button id="saveGroupsBtn">保存</button>
+      <button id="reloadGroupsBtn" class="secondary" type="button">最新を読み込み直す</button>
+    </div>
+    <div id="groupsStatus" class="group-status"></div>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">③ 子どもたちにURLを共有</h2>
     <ol>
       <li>このサイトのトップページURL（<code id="rootUrl">/</code>）を子どもたちに共有</li>
-      <li>子どもたちは<strong>サインイン不要</strong>でアクセスして録音できる</li>
+      <li>子どもたちは<strong>サインイン不要</strong>で、登録したグループから1つ選んで録音できます</li>
       <li>録音は <code>OneDrive/録音くん保存フォルダ/[グループ名]/</code> に保存</li>
-      <li>履歴は同フォルダの <code>history.csv</code> に追記</li>
+      <li>履歴は <code>OneDrive/録音くん保存フォルダ/history.csv</code> に追記</li>
     </ol>
   </div>
 
@@ -55,7 +81,7 @@
     <ul>
       <li>このページのURLは<strong>公開しないでください</strong>（誰かにアクセスされても被害は限定的ですが、念のため）</li>
       <li>リフレッシュトークンは90日間使用がない場合に失効します。失効した場合は再度サインインしてください</li>
-      <li>サインアウト・解除には Vercel ダッシュボードで KV を削除してください</li>
+      <li>サインアウト・解除には Vercel ダッシュボードで Upstash データベースの <code>ms:refresh_token</code> を削除してください</li>
     </ul>
   </div>
 
@@ -76,6 +102,55 @@
     document.getElementById('signinBtn').onclick = () => {
       location.href = '/api/auth-start';
     };
+
+    const groupsText = document.getElementById('groupsText');
+    const groupsStatus = document.getElementById('groupsStatus');
+    const saveBtn = document.getElementById('saveGroupsBtn');
+    const reloadBtn = document.getElementById('reloadGroupsBtn');
+
+    function setGroupsStatus(msg, kind) {
+      groupsStatus.textContent = msg;
+      groupsStatus.className = 'group-status' + (kind ? ' ' + kind : '');
+    }
+
+    async function loadGroups() {
+      try {
+        const r = await fetch('/api/groups');
+        const data = await r.json();
+        const groups = Array.isArray(data.groups) ? data.groups : [];
+        groupsText.value = groups.join('\n');
+        setGroupsStatus(groups.length ? `現在 ${groups.length} 件登録されています。` : 'まだ何も登録されていません。', '');
+      } catch (e) {
+        setGroupsStatus('読み込み失敗: ' + e.message, 'err');
+      }
+    }
+
+    async function saveGroups() {
+      const lines = groupsText.value.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+      saveBtn.disabled = true;
+      setGroupsStatus('保存中…');
+      try {
+        const r = await fetch('/api/groups', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ groups: lines }),
+        });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+        const saved = Array.isArray(data.groups) ? data.groups : [];
+        groupsText.value = saved.join('\n');
+        setGroupsStatus(`✅ 保存しました（${saved.length} 件）`, 'ok');
+      } catch (e) {
+        setGroupsStatus('❌ 保存失敗: ' + e.message, 'err');
+      } finally {
+        saveBtn.disabled = false;
+      }
+    }
+
+    saveBtn.onclick = saveGroups;
+    reloadBtn.onclick = loadGroups;
+
+    loadGroups();
   </script>
 </body>
 </html>

@@ -1,4 +1,4 @@
-import { exchangeCodeForToken, saveRefreshToken, getOrigin } from '../lib/graph.js';
+import { exchangeCodeForToken, saveRefreshToken, getOrigin, createAdminSession, adminSessionCookie } from '../lib/graph.js';
 
 export default async function handler(req, res) {
   const { code, error, error_description } = req.query;
@@ -19,6 +19,7 @@ export default async function handler(req, res) {
   }
 
   await saveRefreshToken(data.refresh_token);
+  const sessionToken = await createAdminSession();
 
   let email = '';
   try {
@@ -28,5 +29,6 @@ export default async function handler(req, res) {
     }
   } catch {}
 
+  res.setHeader('Set-Cookie', adminSessionCookie(sessionToken));
   res.redirect(302, `/admin.html?status=success&email=${encodeURIComponent(email)}`);
 }

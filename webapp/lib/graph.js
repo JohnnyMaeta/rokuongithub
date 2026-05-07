@@ -1,8 +1,12 @@
 import { kv } from '@vercel/kv';
+import crypto from 'node:crypto';
 
 const TOKEN_KEY = 'ms:refresh_token';
+const SESSION_KEY = 'admin:session_token';
+const GROUPS_KEY = 'groups:list';
 const SCOPES = 'Files.ReadWrite User.Read offline_access';
 const TOKEN_ENDPOINT = 'https://login.microsoftonline.com/common/oauth2/v2.0/token';
+const SESSION_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
 
 export async function getAccessToken() {
   const refreshToken = await kv.get(TOKEN_KEY);
@@ -84,4 +88,46 @@ export function getAuthorizeUrl(redirectUri) {
   url.searchParams.set('response_mode', 'query');
   url.searchParams.set('prompt', 'select_account');
   return url.toString();
+}
+
+export async function createAdminSession() {
+  const token = crypto.randomBytes(32).toString('hex');
+  await kv.set(SESSION_KEY, token, { ex: SESSION_MAX_AGE });
+  return token;
+}
+
+export function adminSessionCookie(token) {
+  return `admin_session=${token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${SESSION_MAX_AGE}`;
+}
+
+function readCookie(req, name) {
+  const raw = req.headers.cookie || '';
+  for (const part of raw.split(';')) {
+    const [k, ...rest] = part.trim().split('=');
+    if (k === name) return rest.join('=');
+  }
+  return null;
+}
+
+export async function isAdminSessionValid(req) {
+  const cookie = readCookie(req, 'admin_session');
+  if (!cookie) return false;
+  const stored = await kv.get(SESSION_KEY);
+  return Boolean(stored) && stored === cookie;
+}
+
+export async function getGroups() {
+  const value = await kv.get(GROUPS_KEY);
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  try {
+    const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function setGroups(groups) {
+  await kv.set(GROUPS_KEY, JSON.stringify(groups));
 }

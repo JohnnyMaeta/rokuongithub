@@ -19,10 +19,11 @@
       box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 16px;
     }
     label { display: block; font-weight: 600; margin-bottom: 6px; font-size: 14px; }
-    input[type=text] {
+    input[type=text], select {
       width: 100%; padding: 10px; border: 1px solid #c8c6c4;
-      border-radius: 4px; font-size: 16px;
+      border-radius: 4px; font-size: 16px; background: #fff;
     }
+    select:disabled { background: #f3f2f1; color: #605e5c; }
     button {
       background: #0078d4; color: #fff; border: none;
       padding: 14px 20px; font-size: 16px; cursor: pointer;
@@ -56,8 +57,10 @@
 
   <div class="card">
     <label for="groupName">グループ名・ペア名</label>
-    <input id="groupName" type="text" placeholder="例: TeamA" autocomplete="off">
-    <p style="font-size:12px;color:#605e5c;margin:6px 0 0">ファイル名と保存フォルダの先頭に付きます</p>
+    <select id="groupName" disabled>
+      <option value="">読み込み中...</option>
+    </select>
+    <p style="font-size:12px;color:#605e5c;margin:6px 0 0">先生が登録したグループから1つ選んでください</p>
   </div>
 
   <div class="card">
@@ -101,6 +104,40 @@
       els.playback.style.display = 'none';
       blob = null;
     }
+
+    async function loadGroups() {
+      try {
+        const r = await fetch('/api/groups');
+        const data = await r.json();
+        const groups = Array.isArray(data.groups) ? data.groups : [];
+        els.groupName.innerHTML = '';
+        if (groups.length === 0) {
+          const opt = document.createElement('option');
+          opt.value = '';
+          opt.textContent = '（先生がまだグループを登録していません）';
+          els.groupName.appendChild(opt);
+          els.groupName.disabled = true;
+          els.recordBtn.disabled = true;
+          setStatus('先生がグループを登録するまで録音できません。', 'err');
+          return;
+        }
+        const placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.textContent = '— 選んでください —';
+        els.groupName.appendChild(placeholder);
+        for (const name of groups) {
+          const opt = document.createElement('option');
+          opt.value = name;
+          opt.textContent = name;
+          els.groupName.appendChild(opt);
+        }
+        els.groupName.disabled = false;
+      } catch (e) {
+        setStatus('グループ一覧の取得に失敗: ' + e.message, 'err');
+      }
+    }
+
+    loadGroups();
 
     els.recordBtn.onclick = async () => {
       try {
@@ -146,6 +183,10 @@
     els.sendBtn.onclick = async () => {
       if (!blob) return;
       const group = els.groupName.value.trim();
+      if (!group) {
+        setStatus('グループを選んでください。', 'err');
+        return;
+      }
 
       els.sendBtn.disabled = true;
       els.redoBtn.disabled = true;
