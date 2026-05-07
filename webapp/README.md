@@ -70,32 +70,56 @@ OneDriveアクセス用の認証アプリを作成します。
 1. <https://vercel.com/signup> でGitHubアカウントでサインアップ
 2. 右上 **「Add New...」** → **「Project」**
 3. forkした `rokuongithub` リポジトリを **「Import」**
-4. **「Configure Project」** で：
-   - **Root Directory**: **「Edit」** をクリック → `webapp` を選択（重要）
-   - **Environment Variables**:
-     - `MICROSOFT_CLIENT_ID` = 手順1でコピーしたクライアントID
-     - `MICROSOFT_CLIENT_SECRET` = 手順1でコピーしたシークレット値
-5. **「Deploy」** をクリック → 1〜2分で完了
-6. デプロイ後のURL（例: `https://rokuongithub-xxx.vercel.app`）をメモ
+4. **「New Project」** 画面で以下を設定：
+   - **Application Preset**: `Other`（自動で選ばれているはず）
+   - **Root Directory**: **「Edit」** をクリック → `webapp` を選択（**重要**：これを忘れるとビルドが失敗します）
+   - **Environment Variables** セクションを開いて、2つ追加：
+     - 1つ目： Key=`MICROSOFT_CLIENT_ID` / Value=手順1でコピーしたクライアントID
+     - **「+ Add More」** をクリックして2つ目を追加
+     - 2つ目： Key=`MICROSOFT_CLIENT_SECRET` / Value=手順1でコピーしたシークレット値
+5. 一番下の **「Deploy」** をクリック → 1〜2分で完了
+6. デプロイ後のURL（例: `https://rokuongithub.vercel.app`）をメモ
 
-### 4. Vercel KVを接続（3分）
+### 4. Upstash for Redis を接続（5分）
 
-リフレッシュトークンの保管庫を作ります。
+リフレッシュトークンの保管庫を作ります。以前は「Vercel KV」と呼ばれていたものが、今は Vercel Marketplace 経由の **Upstash for Redis** に統合されています（中身はRedisで同じ）。
 
-1. プロジェクトページで上部 **「Storage」** タブ
-2. **「Create Database」** → **「KV」** （Powered by Upstash）を選択
-3. **「Create」** → 適当な名前（例: `rokuon-kv`）→ **「Create」**
-4. **「Connect Project」** → 自分のプロジェクトを選択 → **「Connect」**
-5. 環境変数が自動で追加されます
-6. 上部 **「Deployments」** タブ → 最新のデプロイの **「⋯」** → **「Redeploy」** で再デプロイ
+1. プロジェクトページの **左サイドバー** から **「Storage」** をクリック
+   - ※ 上部タブではなく、左の縦メニューの中にあります
+2. **「Create a database」** 画面が開く → 下にスクロールして **「Marketplace Database Providers」** セクションを探す
+3. **「Upstash」**（説明: `Serverless DB (Redis, Vector, Queue, Search)`）の行をクリックして展開
+4. 展開された中の **「Upstash for Redis」**（赤い丸ロゴ）の右の **「Create」** をクリック
+   - ※ Vector / QStash / Search は別物なので選ばないこと
+5. データベース設定：
+   - **Database Name**: `rokuon-kv`（何でもOK）
+   - **Primary Region**: `Tokyo (ap-northeast-1)` など近いリージョン
+   - **Plan**: **Free**
+   - **Continue** → 利用規約に同意 → **Create**
+6. 作成後の画面で右上の **「Connect to Project」** をクリック
+   - **多くの場合、作成時に自動で接続済み**になっています。その場合プロジェクト名の右に「Connected」バッジが表示され、グレーアウトしています。それで正常なので **Cancel** で閉じてOK
+   - まだ接続されていない場合は、`rokuongithub` を選択 → Environments は Production / Preview / Development 全部チェック → **Connect**
+7. **再デプロイ（重要）**：環境変数を追加したので反映のため再デプロイが必要
+   - 左サイドバーの **「Deployments」** をクリック
+   - 一番上の Production デプロイの右端の **「⋯」**（3点メニュー） → **「Redeploy」**
+   - **「Use existing Build Cache」のチェックは外したまま** → **「Redeploy」** をクリック
+   - 1〜2分で「Ready」になれば完了
+
+> **補足**: Upstashを接続すると `KV_REST_API_TOKEN` `KV_REST_API_URL` `KV_URL` `REDIS_URL` などの環境変数が自動で追加されます。コードはこれらをそのまま使うので、追加設定は不要です。
 
 ### 5. Azure ADにリダイレクトURIを追加（2分）
 
-1. Azure Portal に戻る → 手順1で作ったアプリ → 左メニュー **「認証」**
-2. **「+ プラットフォームを追加」** → **「Web」**
-3. **リダイレクトURI**: `https://<あなたのVercel URL>/api/auth-callback`
-   - 例: `https://rokuongithub-xxx.vercel.app/api/auth-callback`
-4. **「構成」** をクリック
+1. Azure Portal に戻る → 手順1で作ったアプリ（`録音くん`）を開く
+2. 左メニュー **「Authentication (Preview)」** をクリック
+   - ※ 旧UIの場合は「認証」と表示されます
+3. **「+ リダイレクト URI の追加」** をクリック（画面中央の青いボタン、または上部の小さいリンク）
+4. 右側にパネルが開くので：
+   - プラットフォームを聞かれた場合は **「Web」** を選択
+   - **リダイレクト URI** 欄に以下を**正確に**入力：
+     - `https://<あなたのVercel URL>/api/auth-callback`
+     - 例: `https://rokuongithub.vercel.app/api/auth-callback`
+   - URLの右に緑のチェック✅が出れば形式OK
+   - 「アクセストークン」「IDトークン」のチェックボックスは**触らない**（チェックしない）
+5. **「構成」** をクリック
 
 ### 6. 管理者サインイン（1分）
 
@@ -146,6 +170,9 @@ OneDrive/
 | サインイン後にエラー画面 | クライアントシークレット失効の可能性。Azure Portalで新しいシークレット作成 → Vercelの環境変数を更新 → Redeploy |
 | しばらく使わなかったあとエラー | リフレッシュトークン失効（90日無使用）。`/admin.html` で再サインイン |
 | マイクが使えない | ブラウザのマイク許可を確認。HTTPSサイトでないとマイクは使えない（VercelはHTTPSなのでOK） |
+| Vercelの「Storage」画面に「KV」が見当たらない | Vercelの仕様変更で「Vercel KV」は廃止され、Marketplaceの「Upstash for Redis」に統合されました。手順4を参照 |
+| Vercel「New Project」画面でデプロイがビルド失敗 | Root Directoryが `webapp` になっているか確認。空欄や `/` だとビルド失敗します |
+| Upstash接続後もアプリが「NOT_CONFIGURED」を返す | 環境変数追加後の再デプロイ忘れ。Deployments → ⋯ → Redeploy を実施 |
 
 ---
 
@@ -157,15 +184,18 @@ forkリポジトリにコミット → push すると、Vercelが自動でデプ
 
 ### 別のMicrosoftアカウントに切り替えたい
 
-1. Vercel → プロジェクト → Storage → KV → `Browse Data` で `ms:refresh_token` を削除
-2. `/admin.html` で別アカウントでサインイン
+1. Vercel → プロジェクト → 左サイドバー **Storage** → 作成したUpstashデータベースを開く
+2. **「Open in Upstash」** をクリック → Upstashコンソールが開く
+3. Data Browser で `ms:refresh_token` キーを削除
+   - もしくは、もっと簡単な方法として `/admin.html` で新しいアカウントでサインインするだけで上書きされます
+4. `/admin.html` で別アカウントでサインイン
 
 ### コストは？
 
 - **Vercel Hobby（個人利用）**: 無料
   - 月100GB帯域、サーバーレス関数100GB-Hours
   - クラス1つ分なら余裕で無料枠内
-- **Vercel KV**: 無料枠あり（月3万コマンドまで）
+- **Upstash for Redis (Free)**: 無料枠あり（1日10,000コマンドまで）
   - リフレッシュトークン1個しか保存しないので問題なし
 - **Azure AD**: 無料
 
